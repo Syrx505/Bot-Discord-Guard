@@ -17,10 +17,12 @@ def keep_alive(): Thread(target=run).start()
 
 # --- AYARLAR ---
 TOKEN = os.environ.get('DISCORD_TOKEN') 
-WHITELIST_USERS = [1402762600550240357, 1388969148683522270, 1218963997441921165, 973615262655975465, 1460228601051086858]
+# Sənin və dostlarının ID-ləri (Yeni əlavə etdiklərin daxil)
+WHITELIST_USERS = [1402762600550240357, 1388969148683522270, 1218963997441921165, 973615262655975465, 1460228601051086858] 
+
 SPAM_LIMIT = 5
 SPAM_SECONDS = 3
-MENTION_LIMIT = 3 # Bir mesajda maksimum 3 etiket ola bilər
+MENTION_LIMIT = 3
 LINK_PATTERN = re.compile(r"(discord\.gg|dsc\.gg|discord\.me|discord\.io|discord\.li|discord\.com/invite)")
 
 class MyBot(commands.Bot):
@@ -37,16 +39,47 @@ user_messages = {}
 
 @bot.event
 async def on_ready():
-    print(f'--- {bot.user.name} TOTAL PROTECTION AKTİVDİR ---')
+    print(f'--- {bot.user.name} SUPER DEFENDER + 7/24 VOICE AKTİVDİR ---')
 
-@bot.tree.command(name="activate", description="Raid və Nuke qorumasını aktiv edir.")
+# --- 1. KOMANDALAR (/activate və /join) ---
+
+@bot.tree.command(name="activate", description="Bütün qorumaları aktiv edir.")
 @app_commands.checks.has_permissions(administrator=True)
 async def activate(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True) 
     bot.protection_active = True
-    await interaction.followup.send("🛡️ Raid qoruması (Mass Mention daxil) aktiv edildi!")
+    await interaction.followup.send("🛡️ Qoruma sistemi və Raid blokadası aktiv edildi!")
 
-# --- 1. KANAL/ROL/YETKİ QORUMALARI (Eyni qalır) ---
+@bot.tree.command(name="join", description="Botu olduğunuz səs kanalına salar və 7/24 orda saxlayar.")
+async def join(interaction: discord.Interaction):
+    if interaction.user.voice:
+        channel = interaction.user.voice.channel
+        try:
+            # Əgər bot artıq başqa kanaldadırsa, ora keçsin
+            vc = await channel.connect()
+            await interaction.response.send_message(f"🎙️ **{channel.name}** kanalına girildi və 7/24 rejimi aktiv edildi.")
+        except discord.ClientException:
+            # Əgər artıq bağlıdırsa, sadəcə kanalı dəyişsin
+            await interaction.guild.voice_client.move_to(channel)
+            await interaction.response.send_message(f"🎙️ Yeni kanala keçildi: **{channel.name}**")
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Xəta baş verdi: {e}")
+    else:
+        await interaction.response.send_message("❌ Əvvəlcə bir səs kanalına girməlisiniz!")
+
+# --- 2. 7/24 SƏSDƏ QALMA MƏNTİQİ ---
+@bot.event
+async def on_voice_state_update(member, before, after):
+    # Bot səs kanalından kimsə tərəfindən çıxarılsa və ya düşsə, geri qayıtsın
+    if member.id == bot.user.id and after.channel is None:
+        if before.channel:
+            await asyncio.sleep(2) # 2 saniyə gözlə və geri gir
+            try:
+                await before.channel.connect()
+            except:
+                pass
+
+# --- 3. QORUMA FUNKSİYALARI (KANAL, ROL, PERM) ---
 @bot.event
 async def on_guild_channel_update(before, after):
     if not bot.protection_active: return
@@ -91,21 +124,18 @@ async def on_member_update(before, after):
                     await after.edit(roles=before.roles)
                 except: pass
 
-# --- 2. MESAJ VƏ RAİD QORUMASI ---
+# --- 4. MESAJ QORUMALARI (RAID, LINK, SPAM) ---
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild or not bot.protection_active: return
     
-    # --- MASS MENTION (ID SCRAPE SPAM) QORUMASI ---
-    if len(message.mentions) > MENTION_LIMIT:
-        if message.author.id not in WHITELIST_USERS:
-            try:
-                await message.delete()
-                # Raid edən hesabı dərhal banlayırıq (çünki bu normal istifadəçi deyil)
-                await message.author.ban(reason="Mass Mention Raid cəhdi!")
-                await message.channel.send(f"🚨 **RAİD BLOKLANDI:** {message.author.name} çoxlu etiket atdığı üçün banlandı!", delete_after=10)
-                return
-            except: pass
+    # Mass Mention (Raid)
+    if len(message.mentions) > MENTION_LIMIT and message.author.id not in WHITELIST_USERS:
+        try:
+            await message.delete()
+            await message.author.ban(reason="Mass Mention Raid!")
+            return
+        except: pass
 
     # Anti-Link
     if LINK_PATTERN.search(message.content.lower()) and message.author.id not in WHITELIST_USERS:
