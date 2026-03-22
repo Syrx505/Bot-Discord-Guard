@@ -38,53 +38,58 @@ user_messages = {}
 
 @bot.event
 async def on_ready():
-    print(f'--- {bot.user.name} SUPER DEFENDER + 7/24 VOICE AKTİVDİR ---')
+    print(f'--- {bot.user.name} TOTAL PROTECTION AKTİVDİR ---')
 
-# --- 1. KOMANDALAR (/activate və /join [id]) ---
-
+# --- 1. KOMANDALAR ---
 @bot.tree.command(name="activate", description="Bütün qorumaları aktiv edir.")
 @app_commands.checks.has_permissions(administrator=True)
 async def activate(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True) 
     bot.protection_active = True
-    await interaction.followup.send("🛡️ Qoruma sistemi və Raid blokadası aktiv edildi!")
+    await interaction.followup.send("🛡️ Qoruma sistemi (Anti-Ban daxil) aktiv edildi!")
 
 @bot.tree.command(name="join", description="Kanal ID-si vasitəsilə səsə girər və 7/24 orda qalar.")
 @app_commands.describe(channel_id="Girmək istədiyiniz səs kanalının ID-si")
 async def join(interaction: discord.Interaction, channel_id: str):
     try:
-        # ID-ni rəqəmə çeviririk
         target_channel = bot.get_channel(int(channel_id))
-        
         if not target_channel or not isinstance(target_channel, discord.VoiceChannel):
-            await interaction.response.send_message("❌ Səhv ID! Bu ID-yə uyğun səs kanalı tapılmadı.", ephemeral=True)
+            await interaction.response.send_message("❌ Səhv ID!", ephemeral=True)
             return
-
-        # Səsə qoşulma
         if interaction.guild.voice_client:
             await interaction.guild.voice_client.move_to(target_channel)
         else:
             await target_channel.connect()
-
-        await interaction.response.send_message(f"🎙️ **{target_channel.name}** kanalına girildi və 7/24 FK rejimi başladı!")
-    
-    except ValueError:
-        await interaction.response.send_message("❌ Zəhmət olmasa düzgün rəqəmlərdən ibarət ID yazın.", ephemeral=True)
+        await interaction.response.send_message(f"🎙️ **{target_channel.name}** kanalına girildi!")
     except Exception as e:
         await interaction.response.send_message(f"❌ Xəta: {e}", ephemeral=True)
 
-# --- 2. 7/24 SƏSDƏ QALMA MƏNTİQİ ---
+# --- 2. ANTİ-BAN (BAN ATANI CƏZALANDIRMA) ---
 @bot.event
-async def on_voice_state_update(member, before, after):
-    if member.id == bot.user.id and after.channel is None:
-        if before.channel:
-            await asyncio.sleep(3)
-            try:
-                await before.channel.connect()
-            except:
-                pass
+async def on_member_ban(guild, user):
+    if not bot.protection_active: return
+    
+    await asyncio.sleep(1) # Audit Log-un düşməsi üçün gözləmə
+    async for entry in guild.audit_logs(limit=1, action=discord.AuditLogAction.ban):
+        executor = entry.user # Banı atan şəxs
+        
+        # Əgər banı atan Whitelist-də deyilsə və botun özü deyilsə
+        if executor.id not in WHITELIST_USERS and executor.id != bot.user.id:
+            member = guild.get_member(executor.id)
+            if member:
+                try:
+                    # Banı atanın rollarını al
+                    await member.edit(roles=[], reason="İzinsiz ban atmaq!")
+                    # Banı atanı 1 saatlıq timeout et
+                    await member.timeout(datetime.timedelta(hours=1), reason="İzinsiz ban cəhdi")
+                    
+                    # Kanala məlumat ver
+                    if guild.system_channel:
+                        await guild.system_channel.send(f"🚫 **KRİTİK:** {executor.mention} icazəsiz ban atdığı üçün bütün yetkiləri alındı!")
+                except Exception as e:
+                    print(f"Anti-Ban xətası: {e}")
 
-# --- 3. QORUMA FUNKSİYALARI (Eyni qalır) ---
+# --- 3. DİGƏR QORUMALAR (Kanal, Rol, Perm) ---
 @bot.event
 async def on_guild_channel_update(before, after):
     if not bot.protection_active: return
@@ -128,6 +133,7 @@ async def on_member_update(before, after):
                     await after.edit(roles=before.roles)
                 except: pass
 
+# --- 4. MESAJ QORUMALARI ---
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild or not bot.protection_active: return
@@ -141,6 +147,7 @@ async def on_message(message):
         try: await message.delete(); await message.author.edit(roles=[])
         except: pass
     
+    # Anti-Spam
     user_id = message.author.id
     now = datetime.datetime.now()
     if user_id not in user_messages: user_messages[user_id] = []
@@ -154,6 +161,15 @@ async def on_message(message):
             user_messages[user_id] = []
         except: pass
     await bot.process_commands(message)
+
+# --- SƏS 7/24 ---
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if member.id == bot.user.id and after.channel is None:
+        if before.channel:
+            await asyncio.sleep(3)
+            try: await before.channel.connect()
+            except: pass
 
 if __name__ == "__main__":
     keep_alive()  
