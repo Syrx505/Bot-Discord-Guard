@@ -1,3 +1,4 @@
 discord.py
 flask
-PyNaCl
+discord.py[voice]
+PyNaCl==1.5.0
