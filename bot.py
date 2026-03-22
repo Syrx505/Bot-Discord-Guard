@@ -20,6 +20,7 @@ TOKEN = os.environ.get('DISCORD_TOKEN')
 WHITELIST_USERS = [1402762600550240357, 1388969148683522270, 1218963997441921165] 
 SPAM_LIMIT = 5
 SPAM_SECONDS = 3
+MENTION_LIMIT = 3 # Bir mesajda maksimum 3 etiket ola bilər
 LINK_PATTERN = re.compile(r"(discord\.gg|dsc\.gg|discord\.me|discord\.io|discord\.li|discord\.com/invite)")
 
 class MyBot(commands.Bot):
@@ -36,44 +37,30 @@ user_messages = {}
 
 @bot.event
 async def on_ready():
-    print(f'--- {bot.user.name} SUPER DEFENDER AKTİVDİR ---')
+    print(f'--- {bot.user.name} TOTAL PROTECTION AKTİVDİR ---')
 
-@bot.tree.command(name="activate", description="Bütün qorumaları aktiv edir.")
+@bot.tree.command(name="activate", description="Raid və Nuke qorumasını aktiv edir.")
 @app_commands.checks.has_permissions(administrator=True)
 async def activate(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True) 
     bot.protection_active = True
-    await interaction.followup.send("🛡️ Qoruma sistemi və Kanal İzni Kilidi aktiv edildi!")
+    await interaction.followup.send("🛡️ Raid qoruması (Mass Mention daxil) aktiv edildi!")
 
-# --- 1. KANAL İZNİ VƏ AYAR DƏYİŞİKLİYİ QORUMASI ---
+# --- 1. KANAL/ROL/YETKİ QORUMALARI (Eyni qalır) ---
 @bot.event
 async def on_guild_channel_update(before, after):
     if not bot.protection_active: return
-    
-    # Discord logların düşməsi üçün 1 saniyə gözləyirik (daha dəqiq tapmaq üçün)
     await asyncio.sleep(1)
-    
     async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
         user = entry.user
-        
-        # Əgər dəyişikliyi edən Whitelist-də deyilsə
         if user.id not in WHITELIST_USERS and user.id != bot.user.id:
             member = after.guild.get_member(user.id)
             if member:
                 try:
-                    # Dərhal cəzalandır: Rolları al + Mute
-                    await member.edit(roles=[], reason="İzinsiz kanal izni/ayarı dəyişmə!")
+                    await member.edit(roles=[], reason="İzinsiz kanal ayarı dəyişmə!")
                     await member.timeout(datetime.timedelta(hours=1))
-                    
-                    # Log mesajı
-                    await after.guild.system_channel.send(f"🚫 **KRİTİK MÜDAXİLƏ:** {user.mention} kanalın izinləri ilə oynadığı üçün yetkiləri alındı!")
-                    
-                    # (Opsional) Əgər mümkün olsa izinləri köhnə halına qaytar
-                    # Qeyd: İzinləri tam bərpa etmək mürəkkəbdir, amma adamın yetkisini almaq onu dayandıracaq.
-                except Exception as e:
-                    print(f"Kanal update xətası: {e}")
+                except: pass
 
-# --- 2. KANAL SİLMƏ QORUMASI ---
 @bot.event
 async def on_guild_channel_delete(channel):
     if not bot.protection_active: return
@@ -87,10 +74,8 @@ async def on_guild_channel_delete(channel):
                 await channel.guild.create_text_channel(name=channel.name, category=channel.category, position=channel.position)
                 await member.edit(roles=[], reason="İzinsiz kanal silmə!")
                 await member.timeout(datetime.timedelta(hours=1))
-                await channel.guild.system_channel.send(f"🚫 {user.mention} kanal sildiyi üçün yetkiləri alındı!")
             except: pass
 
-# --- 3. YETKİ (ROL) VERMƏ QORUMASI ---
 @bot.event
 async def on_member_update(before, after):
     if not bot.protection_active: return
@@ -104,35 +89,35 @@ async def on_member_update(before, after):
                 try:
                     await executor.edit(roles=[], reason="İzinsiz rol dəyişikliyi!")
                     await after.edit(roles=before.roles)
-                    await after.guild.system_channel.send(f"🚫 {user.mention} icazəsiz rol verdiyi üçün yetkiləri alındı!")
                 except: pass
 
-# --- 4. ROL YARATMA QORUMASI ---
-@bot.event
-async def on_guild_role_create(role):
-    if not bot.protection_active: return
-    await asyncio.sleep(1)
-    async for entry in role.guild.audit_logs(limit=1, action=discord.AuditLogAction.role_create):
-        user = entry.user
-        if user.id in WHITELIST_USERS or user.id == bot.user.id: return
-        member = role.guild.get_member(user.id)
-        if member:
-            try:
-                await role.delete()
-                await member.edit(roles=[])
-                await role.guild.system_channel.send(f"🚫 {user.mention} yeni rol yaratdığı üçün yetkiləri alındı!")
-            except: pass
-
-# --- 5. MESAJ QORUMALARI (LINK, EVERYONE, SPAM) ---
+# --- 2. MESAJ VƏ RAİD QORUMASI ---
 @bot.event
 async def on_message(message):
     if message.author.bot or not message.guild or not bot.protection_active: return
+    
+    # --- MASS MENTION (ID SCRAPE SPAM) QORUMASI ---
+    if len(message.mentions) > MENTION_LIMIT:
+        if message.author.id not in WHITELIST_USERS:
+            try:
+                await message.delete()
+                # Raid edən hesabı dərhal banlayırıq (çünki bu normal istifadəçi deyil)
+                await message.author.ban(reason="Mass Mention Raid cəhdi!")
+                await message.channel.send(f"🚨 **RAİD BLOKLANDI:** {message.author.name} çoxlu etiket atdığı üçün banlandı!", delete_after=10)
+                return
+            except: pass
+
+    # Anti-Link
     if LINK_PATTERN.search(message.content.lower()) and message.author.id not in WHITELIST_USERS:
         try: await message.delete(); await message.author.timeout(datetime.timedelta(minutes=10))
         except: pass
+
+    # Anti-Everyone
     if ("@everyone" in message.content or "@here" in message.content) and message.author.id not in WHITELIST_USERS:
         try: await message.delete(); await message.author.edit(roles=[]); await message.author.timeout(datetime.timedelta(hours=1))
         except: pass
+
+    # Anti-Spam
     user_id = message.author.id
     now = datetime.datetime.now()
     if user_id not in user_messages: user_messages[user_id] = []
@@ -145,6 +130,7 @@ async def on_message(message):
             await message.channel.purge(limit=15, check=is_spam)
             user_messages[user_id] = []
         except: pass
+
     await bot.process_commands(message)
 
 if __name__ == "__main__":
